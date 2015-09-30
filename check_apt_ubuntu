@@ -1,0 +1,139 @@
+#!/bin/bash
+#
+# Author : Andrew Wilkins
+# Desc : Plugin to report update status using ubuntu update-notifier
+#
+#
+PROGNAME=`basename $0`
+PROGPATH=`echo $0 | sed -e 's,[\\/][^\\/][^\\/]*$,,'`
+
+. $PROGPATH/utils.sh
+
+##default options
+UPDATESTATUS="WARNING"
+SECURITYSTATUS="CRITICAL"
+REBOOTSTATUS="WARNING"
+STATUS="OK"
+
+##get options from command line args
+while [[ $# > 0 ]]
+do
+key="$1"
+
+case $key in
+    -u|--updated)
+    if [[ "$2" == w* ]] || [[ "$2" == W* ]];
+    then
+    UPDATESTATUS="WARNING"
+    elif [[ "$2" == c* ]] || [[ "$2" == C* ]];
+    then
+    UPDATESTATUS="CRITICAL"
+    elif [[ "$2" == o* ]] || [[ "$2" == O* ]];
+    then
+    UPDATESTATUS="OK"
+    fi
+    shift # past argument
+    ;;
+    -s|--security)
+    if [[ "$2" == w* ]] || [[ "$2" == W* ]];
+    then
+    SECURITYSTATUS="WARNING"
+    elif [[ "$2" == c* ]] || [[ "$2" == C* ]];
+    then
+    SECURITYSTATUS="CRITICAL"
+    elif [[ "$2" == o* ]] || [[ "$2" == O* ]];
+    then
+    SECURITYSTATUS="OK"
+    fi
+    shift # past argument
+    ;;
+    -r|--reboot)
+    if [[ "$2" == w* ]] || [[ "$2" == W* ]];
+    then
+    REBOOTSTATUS="WARNING"
+    elif [[ "$2" == c* ]] || [[ "$2" == C* ]];
+    then
+    REBOOTSTATUS="CRITICAL"
+    elif [[ "$2" == o* ]] || [[ "$2" == O* ]];
+    then
+    REBOOTSTATUS="OK"
+    fi
+    shift # past argument
+    ;;
+    *)
+            # unknown option
+    ;;
+esac
+shift # past argument or value
+done
+
+##exit with exist status
+exit_status () {
+if [ "$STATUS" == "OK" ];
+then
+    exit $STATE_OK
+elif [ "$STATUS" == "WARNING" ]; then
+    exit $STATE_WARNING
+elif [ "$STATUS" == "CRITICAL" ];
+then
+    exit $STATE_CRITICAL
+else
+    exit $STATE_UNKNOWN
+fi
+}
+
+##update status if not already higher
+##error state is considered higher than critical
+update_status () {
+if [ "$1" == "ERROR" ];
+then
+    STATUS="ERROR"
+elif [ "$1" == "CRITICAL" ] && [ "$1" != "ERROR" ];
+then
+    STATUS="CRITICAL"
+elif [ "$1" == "WARNING" ] && [ "$1" != "CRITICAL" ] && [ "$1" != "ERROR" ];
+then
+    STATUS="WARNING"
+fi
+}
+
+# Query pending apt updates.
+PENDING=$(/usr/lib/update-notifier/apt-check 2>&1)
+
+if [ $? -ne 0 ]; then
+    echo "Error Unable to determine pending updates"
+    updates_status "ERROR"
+    exit_status
+fi
+
+#check for reboot required
+if [ -f /var/run/reboot-required ]; then
+        REBOOT=`cat /var/run/reboot-required`
+        update_status "$REBOOTSTATUS"
+fi
+
+
+# Exit immidiatly if there are no updates.
+if [ "$PENDING" = "0;0" ]; then
+    echo -n "$STATUS: 0 Package Upgrades Pending $REBOOT"
+    echo "| Security Updates=0;;;0 Non-Security Upgrades=0;;;0 Total Upgrades=0;;;0"
+   exit_status
+fi;
+
+# Separate security and non-security updated
+UPDATES=$(echo "$PENDING"|cut -d ";" -f 1)
+SECURITY=$(echo "$PENDING"|cut -d ";" -f 2)
+NONSECURITY=$((UPDATES - SECURITY))
+##Update status based on 
+if [ "$UPDATES" != "0" ]; then
+   update_status "$UPDATESTATUS"
+fi
+
+if [ "$SECURITY" != "0" ]; then
+   update_status "$SECURITYSTATUS"
+fi
+##output status text and performance data
+    echo -n "$STATUS: $UPDATES Package Upgrades Pending, $SECURITY Security, $NONSECURITY Non-Security $REBOOT"
+    echo " | Security Updates=$SECURITY;;;0 Non-Security Upgrades=$NONSECURITY;;;0 Total Upgrades=$UPDATES;;;0"
+##exit giving status
+exit_status
