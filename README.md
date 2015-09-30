@@ -1,2 +1,2 @@
-# nagioschecks
-Nagios Check Scripts 
+# nagiosscripts
+Nagios  Scripts 
